@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <title>记忆大师 Pro</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#38bdf8">
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="记忆大师">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/5692/5692030.png">
+    
+    
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #1e293b;
+            --accent: #38bdf8;
+            --danger: #ef4444;
+            --gold: #fbbf24;
+        }
+
+        body {
+            background-color: var(--bg); color: #f8fafc;
+            font-family: 'PingFang SC', system-ui, sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+            height: 100vh; margin: 0; overflow: hidden;
+        }
+
+        #ui-panel {
+            background: var(--panel); width: 100%; padding: 15px 20px;
+            display: flex; justify-content: space-around; align-items: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); border-bottom: 2px solid #334155;
+            z-index: 100;
+        }
+
+        .stat-box { text-align: center; min-width: 80px; }
+        .label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 3px; }
+        .value { font-size: 1.5rem; font-weight: 800; }
+        
+        #best-val { color: var(--gold); }
+        #hp-val { color: var(--danger); letter-spacing: 2px; }
+        #timer-val { color: var(--accent); font-family: monospace; }
+
+        #game-board {
+            position: relative; width: 95vw; height: 75vh;
+            margin-top: 20px; border-radius: 20px;
+            background: radial-gradient(circle, #1e293b 0%, #0f172a 100%);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.05);
+            overflow: hidden;
+        }
+
+        .circle {
+            position: absolute; width: 52px; height: 52px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+            border: 2px solid rgba(255,255,255,0.15);
+            z-index: 5;
+        }
+
+        .circle.hidden-mode { font-size: 0 !important; background: #334155 !important; border-color: #475569; }
+        .circle.error-flash { background: var(--danger) !important; transform: scale(1.3); z-index: 10; border-color: white; }
+        .circle:active { transform: scale(0.9); }
+
+        button {
+            padding: 10px 30px; border-radius: 10px; border: none;
+            background: linear-gradient(135deg, var(--accent), #0ea5e9);
+            color: white; font-weight: bold; font-size: 1rem;
+            cursor: pointer; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        }
+        button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+        button:disabled { background: #475569; opacity: 0.5; cursor: not-allowed; }
+
+        /* 游戏结束弹窗样式 */
+        #modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--panel); padding: 40px; border-radius: 24px;
+            text-align: center; display: none; z-index: 1000;
+            box-shadow: 0 0 100px rgba(0,0,0,0.8); border: 2px solid var(--accent);
+        }
+    </style>
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js');
+            });
+        }
+    </script>
+    
+</head>
+<body>
+
+    <div id="ui-panel">
+        <div class="stat-box">
+            <div class="label">最高纪录</div>
+            <div id="best-val" class="value">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">当前关卡</div>
+            <div id="level-val" class="value">1</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">生命值</div>
+            <div id="hp-val" class="value">❤️❤️❤️</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">倒计时</div>
+            <div id="timer-val" class="value">--</div>
+        </div>
+        <button id="start-btn" onclick="initLevel()">开始游戏</button>
+    </div>
+
+    <div id="game-board"></div>
+
+    <script>
+        let level = 1;
+        let hp = 3;
+        let bestLevel = localStorage.getItem('memoryGameBest') || 0;
+        let nextNumber = 1;
+        let timerInterval = null;
+        let isChallengeActive = false;
+
+        const board = document.getElementById('game-board');
+        const startBtn = document.getElementById('start-btn');
+        document.getElementById('best-val').innerText = bestLevel;
+
+        // 音效系统
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq, type, duration = 0.2) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        function getColor(n, total) {
+            return `hsl(${(n / total) * 280}, 60%, 50%)`;
+        }
+
+        function updateHP() {
+            document.getElementById('hp-val').innerText = "❤️".repeat(hp) + "🖤".repeat(3 - hp);
+        }
+
+        function initLevel() {
+            board.innerHTML = '';
+            nextNumber = 1;
+            isChallengeActive = false;
+            startBtn.disabled = true;
+            updateHP();
+            
+            const numCount = level + 2; 
+            // 难度曲线：记忆时间 = 12 - log2(level) * 1.8
+            let timeLimit = Math.max(3.0, 12 - Math.log2(level) * 1.8);
+
+            const positions = [];
+            for (let i = 1; i <= numCount; i++) {
+                let x, y, overlap;
+                let attempts = 0;
+                do {
+                    overlap = false;
+                    x = Math.random() * (board.clientWidth - 65) + 5;
+                    y = Math.random() * (board.clientHeight - 65) + 5;
+                    for (let p of positions) {
+                        if (Math.hypot(x-p.x, y-p.y) < 62) { overlap = true; break; }
+                    }
+                    attempts++;
+                } while (overlap && attempts < 200);
+                
+                positions.push({x, y});
+                const c = document.createElement('div');
+                c.className = 'circle';
+                c.innerText = i;
+                c.style.left = x + 'px';
+                c.style.top = y + 'px';
+                c.style.backgroundColor = getColor(i, numCount);
+                c.onclick = () => handleClick(i, c);
+                board.appendChild(c);
+            }
+
+            let timeLeft = timeLimit;
+            timerInterval = setInterval(() => {
+                timeLeft -= 0.1;
+                document.getElementById('timer-val').innerText = Math.max(0, timeLeft).toFixed(1) + 's';
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    startChallenge();
+                }
+            }, 100);
+        }
+
+        function startChallenge() {
+            isChallengeActive = true;
+            document.getElementById('timer-val').innerText = "GO!";
+            document.querySelectorAll('.circle').forEach(c => c.classList.add('hidden-mode'));
+            playSound(523, 'sine', 0.1);
+        }
+
+        function handleClick(n, el) {
+            if (!isChallengeActive) return;
+
+            if (n === nextNumber) {
+                playSound(400 + n * 30, 'sine', 0.1);
+                el.style.transform = 'scale(0)';
+                el.style.opacity = '0';
+                el.style.pointerEvents = 'none';
+                nextNumber++;
+
+                if (nextNumber > (level + 2)) {
+                    isChallengeActive = false;
+                    setTimeout(winLevel, 300);
+                }
+            } else {
+                hp--;
+                updateHP();
+                playSound(150, 'square', 0.3);
+                el.classList.add('error-flash');
+                setTimeout(() => el.classList.remove('error-flash'), 400);
+
+                if (hp <= 0) gameOver();
+            }
+        }
+
+        function winLevel() {
+            if (level > bestLevel) {
+                bestLevel = level;
+                localStorage.setItem('memoryGameBest', bestLevel);
+                document.getElementById('best-val').innerText = bestLevel;
+            }
+            alert(`🎉 成功! 第 ${level} 关已突破!`);
+            level++;
+            document.getElementById('level-val').innerText = level;
+            startBtn.disabled = false;
+            startBtn.innerText = `开启第 ${level} 关`;
+        }
+
+        function gameOver() {
+            isChallengeActive = false;
+            alert(`💀 挑战结束!\n你的成绩: Level ${level}\n历史最高: Level ${bestLevel}`);
+            level = 1;
+            hp = 3;
+            document.getElementById('level-val').innerText = level;
+            startBtn.disabled = false;
+            startBtn.innerText = "重新开始";
+            board.innerHTML = '';
+            updateHP();
+        }
+    </script>
+</body>
+</html>
