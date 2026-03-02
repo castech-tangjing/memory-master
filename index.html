@@ -157,51 +157,52 @@
         }
 
         function initLevel() {
-            board.innerHTML = '';
-            nextNumber = 1;
-            isChallengeActive = false;
-            startBtn.disabled = true;
-            updateHP();
-            
-            const numCount = level + 2; 
-            // 难度曲线：记忆时间 = 12 - log2(level) * 1.8
-            let timeLimit = Math.max(3.0, 12 - Math.log2(level) * 1.8);
+    board.innerHTML = '';
+    nextNumber = 1;
+    isChallengeActive = false;
+    startBtn.disabled = true;
+    updateHP();
+    
+    const numCount = level + 2; 
+    // 数字越多，时间越多
+    let timeLimit = 2.0 + (numCount * 0.8); 
 
-            const positions = [];
-            for (let i = 1; i <= numCount; i++) {
-                let x, y, overlap;
-                let attempts = 0;
-                do {
-                    overlap = false;
-                    x = Math.random() * (board.clientWidth - 65) + 5;
-                    y = Math.random() * (board.clientHeight - 65) + 5;
-                    for (let p of positions) {
-                        if (Math.hypot(x-p.x, y-p.y) < 62) { overlap = true; break; }
-                    }
-                    attempts++;
-                } while (overlap && attempts < 200);
-                
-                positions.push({x, y});
-                const c = document.createElement('div');
-                c.className = 'circle';
-                c.innerText = i;
-                c.style.left = x + 'px';
-                c.style.top = y + 'px';
-                c.style.backgroundColor = getColor(i, numCount);
-                c.onclick = () => handleClick(i, c);
-                board.appendChild(c);
+    const positions = [];
+    for (let i = 1; i <= numCount; i++) {
+        let x, y, overlap;
+        let attempts = 0;
+        do {
+            overlap = false;
+            // 手机端适配：留出 60px 的边距防止球出现在屏幕最边缘不好点
+            x = Math.random() * (board.clientWidth - 70) + 10;
+            y = Math.random() * (board.clientHeight - 70) + 10;
+            for (let p of positions) {
+                if (Math.hypot(x-p.x, y-p.y) < 65) { overlap = true; break; }
             }
+            attempts++;
+        } while (overlap && attempts < 250); // 增加尝试次数以适配 30 关
+        
+        positions.push({x, y});
+        const c = document.createElement('div');
+        c.className = 'circle';
+        c.innerText = i;
+        c.style.left = x + 'px';
+        c.style.top = y + 'px';
+        c.style.backgroundColor = getColor(i, numCount);
+        c.onclick = () => handleClick(i, c);
+        board.appendChild(c);
+    }
 
-            let timeLeft = timeLimit;
-            timerInterval = setInterval(() => {
-                timeLeft -= 0.1;
-                document.getElementById('timer-val').innerText = Math.max(0, timeLeft).toFixed(1) + 's';
-                if (timeLeft <= 0) {
-                    clearInterval(timerInterval);
-                    startChallenge();
-                }
-            }, 100);
+    let timeLeft = timeLimit;
+    timerInterval = setInterval(() => {
+        timeLeft -= 0.1;
+        document.getElementById('timer-val').innerText = Math.max(0, timeLeft).toFixed(1) + 's';
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            startChallenge();
         }
+    }, 100);
+}
 
         function startChallenge() {
             isChallengeActive = true;
@@ -261,4 +262,5 @@
         }
     </script>
 </body>
+
 </html>
